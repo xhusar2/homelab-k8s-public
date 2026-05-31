@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: takdb
+  namespace: tak
+  labels:
+    app: takdb
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+  selector:
+    app: takdb
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: takdb
+  namespace: tak
+  labels:
+    app: takdb
+spec:
+  serviceName: takdb
+  replicas: 1
+  selector:
+    matchLabels:
+      app: takdb
+  template:
+    metadata:
+      labels:
+        app: takdb
+    spec:
+      containers:
+        - name: postgres
+          image: postgis/postgis:15-3.3
+          ports:
+            - name: postgres
+              containerPort: 5432
+          envFrom:
+            - configMapRef:
+                name: tak-server-env
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tak-server-secrets
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+              subPath: pgdata
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U "$(POSTGRES_USER)" -d "$(POSTGRES_DB)"
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U "$(POSTGRES_USER)" -d "$(POSTGRES_DB)"
+            initialDelaySeconds: 30
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: longhorn
+        resources:
+          requests:
+            storage: 20Gi

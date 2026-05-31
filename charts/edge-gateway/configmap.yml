@@ -1,0 +1,104 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: edge-gateway-config
+  namespace: edge-gateway
+data:
+  # listen_port/proto/target_host/target_port — add a line per game
+  forwards: |
+    42420/tcp/vintage-story-service.gaming.svc/42420
+    42420/udp/vintage-story-service.gaming.svc/42420
+    42421/tcp/vintage-story-2-service.gaming.svc/42421
+    42421/udp/vintage-story-2-service.gaming.svc/42421
+    31889/tcp/tak-server.tak.svc/8089
+    8443/tcp/tak-server.tak.svc/8443
+  gateway.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    if [ ! -f /config/wg0.conf ]; then
+      echo "Missing /config/wg0.conf — create secret wg-gateway-config (see wg0.conf.example)"
+      exit 1
+    fi
+
+    if [ "$(cat /proc/sys/net/ipv4/ip_forward)" != "1" ]; then
+      sysctl -w net.ipv4.ip_forward=1 2>/dev/null || true
+    fi
+    if [ "$(cat /proc/sys/net/ipv4/ip_forward)" != "1" ]; then
+      echo "ERROR: net.ipv4.ip_forward is not enabled (set pod securityContext.sysctls)"
+      exit 1
+    fi
+
+    # Pod NAT (wg0 -> eth0 -> ClusterIP) fails silently if rp_filter drops asymmetric routes
+    for key in all default wg0 eth0; do
+      sysctl -w "net.ipv4.conf.${key}.rp_filter=0" 2>/dev/null || true
+    done
+
+    wg-quick up /config/wg0.conf
+
+    for _ in $(seq 1 30); do
+      ip link show wg0 >/dev/null 2>&1 && break
+      sleep 1
+    done
+    ip link show wg0 >/dev/null 2>&1 || { echo "wg0 did not come up"; exit 1; }
+
+    WG_IP=$(ip -4 addr show wg0 | awk '/inet / {print $2}' | cut -d/ -f1)
+    echo "WireGuard up on ${WG_IP}"
+
+    resolve_host() {
+      local host="$1"
+      local ip=""
+      local dns
+      dns=$(awk '/^nameserver/ {print $2; exit}' /etc/resolv.conf)
+      # linuxserver image: getent/bash often fail; nslookup against cluster DNS is reliable
+      if [ -n "$dns" ]; then
+        ip=$(nslookup "$host" "$dns" 2>/dev/null | awk '/^Address: / { print $2 }' | grep -v ':' | tail -1)
+      fi
+      if [ -z "$ip" ]; then
+        ip=$(nslookup "$host" 2>/dev/null | awk '/^Address: / { print $2 }' | grep -v ':' | tail -1)
+      fi
+      if [ -z "$ip" ] && command -v getent >/dev/null 2>&1; then
+        ip=$(getent ahostsv4 "$host" 2>/dev/null | awk '{print $1; exit}')
+      fi
+      echo "$ip"
+    }
+
+    setup_forward() {
+      local listen_port="$1"
+      local proto="$2"
+      local target_host="$3"
+      local target_port="$4"
+      local target_ip=""
+
+      while [ -z "$target_ip" ]; do
+        target_ip=$(resolve_host "$target_host")
+        if [ -z "$target_ip" ]; then
+          echo "Waiting for DNS: ${target_host}"
+          sleep 5
+        fi
+      done
+
+      echo "Forward wg0:${listen_port}/${proto} -> ${target_ip}:${target_port}"
+      iptables -t nat -A PREROUTING -i wg0 -p "$proto" --dport "$listen_port" \
+        -j DNAT --to-destination "${target_ip}:${target_port}"
+    }
+
+    while IFS= read -r line || [ -n "$line" ]; do
+      [ -z "$line" ] && continue
+      case "$line" in \#*) continue ;; esac
+      listen_port=$(echo "$line" | cut -d/ -f1)
+      proto=$(echo "$line" | cut -d/ -f2)
+      rest=$(echo "$line" | cut -d/ -f3-)
+      target_host=$(echo "$rest" | cut -d/ -f1)
+      target_port=$(echo "$rest" | cut -d/ -f2)
+      setup_forward "$listen_port" "$proto" "$target_host" "$target_port"
+    done < /scripts/forwards
+
+    # Tunnel -> cluster (new + return)
+    iptables -A FORWARD -i wg0 -o eth0 -j ACCEPT
+    iptables -A FORWARD -i eth0 -o wg0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null \
+      || iptables -A FORWARD -i eth0 -o wg0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+    iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+
+    trap 'wg-quick down /config/wg0.conf 2>/dev/null || true' TERM INT
+    exec sleep infinity

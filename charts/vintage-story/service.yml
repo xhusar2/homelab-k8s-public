@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vintage-story-service
+  namespace: gaming
+spec:
+  type: ClusterIP
+  selector:
+    app: vintage-story
+  ports:
+    - name: game-tcp
+      protocol: TCP
+      port: 42420
+      targetPort: 42420
+    - name: game-udp
+      protocol: UDP
+      port: 42420
+      targetPort: 42420

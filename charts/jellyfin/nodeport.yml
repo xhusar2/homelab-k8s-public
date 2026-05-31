@@ -1,0 +1,20 @@
+# Browser access without Traefik/DNS: http://<any-node-ip>:30896
+# Works over LAN (LAN_IP_OCTET_PLACEHOLDERx.x) or Tailscale/Headscale node IPs (100.64.x.x)
+apiVersion: v1
+kind: Service
+metadata:
+  name: jellyfin-external
+  namespace: media
+  labels:
+    app.kubernetes.io/name: jellyfin-external
+    app.kubernetes.io/part-of: media
+spec:
+  type: NodePort
+  selector:
+    app: jellyfin
+  ports:
+    - name: http
+      port: 8096
+      protocol: TCP
+      targetPort: 8096
+      nodePort: 30896

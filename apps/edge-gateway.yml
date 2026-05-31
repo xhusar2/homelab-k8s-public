@@ -1,0 +1,19 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: edge-gateway
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/GITHUB_ORG_PLACEHOLDER/homelab-k8s-public.git
+    targetRevision: HEAD
+    path: charts/edge-gateway
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: edge-gateway
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    createNamespace: true

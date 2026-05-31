@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tak-server-env
+  namespace: tak
+data:
+  POSTGRES_DB: cot
+  POSTGRES_USER: martiuser
+  POSTGRES_ADDRESS: takdb
+  POSTGRES_SUPERUSER: martiuser
+  ADMIN_CERT_NAME: admin
+  # Hostname or IP ATAK clients use to reach this server (mission packages, enrollment).
+  TAK_SERVER_ADDRESS: VPS_PUBLIC_IP_PLACEHOLDER
+  TAK_SERVER_NAME: TAK_SERVER_NAME_PLACEHOLDER
+  LOGGING_JSON_ENABLED: "true"
+  LOGGING_CONFIG: /opt/tak/logback-stdout.xml
+  COUNTRY: US
+  CA_NAME: TAK_CA_NAME_PLACEHOLDER
+  STATE: Local
+  CITY: Homelab
+  ORGANIZATION: Homelab
+  ORGANIZATIONAL_UNIT: TAK

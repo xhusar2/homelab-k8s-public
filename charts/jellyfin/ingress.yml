@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jellyfin-ingress
+  namespace: media
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+    - host: APP_JELLYFIN_HOST_PLACEHOLDER
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: jellyfin
+                port:
+                  number: 8096

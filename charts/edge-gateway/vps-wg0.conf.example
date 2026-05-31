@@ -1,0 +1,35 @@
+# VPS WireGuard server — install as /etc/wireguard/wg0.conf
+#
+# 1. Backup current working state (see README in repo or commands below)
+# 2. Copy vps-forward.sh.example -> /etc/wireguard/vps-forward.sh
+# 3. Fill keys below, set PostUp/PostDown, enable: systemctl enable wg-quick@wg0
+# 4. Remove duplicate game-port rules from /etc/iptables/rules.v4 if using netfilter-persistent
+#
+# Backup commands:
+#   sudo wg showconf wg0 > ~/wg0-$(date +%F).conf
+#   sudo cp /etc/wireguard/wg0.conf ~/wg0.conf-$(date +%F)
+#   sudo iptables-save > ~/iptables-$(date +%F).rules
+#
+# List live rules:
+#   sudo iptables-save | grep -E '42420|10\.8\.0'
+#   sudo iptables -t nat -L -n -v
+#   sudo iptables -L FORWARD -n -v | head -20
+#
+# Test cycle (rules come from PostUp, not manual adds):
+#   sudo wg-quick down wg0
+#   sudo wg-quick up wg0
+#   sudo iptables-save | grep -E '42420|10\.8\.0'
+
+[Interface]
+Address = WG_VPS_PEER_PLACEHOLDER/24
+ListenPort = 51820
+PrivateKey = REPLACE_VPS_PRIVATE_KEY
+# Do not let wg-quick add its own iptables/routes that fight our script
+Table = off
+PostUp = /etc/wireguard/vps-forward.sh up
+PostDown = /etc/wireguard/vps-forward.sh down
+
+[Peer]
+# Homelab gateway pod (wireguard-gateway in edge-gateway namespace)
+PublicKey = REPLACE_HOMELAB_PUBLIC_KEY
+AllowedIPs = WG_HOMELAB_PEER_PLACEHOLDER/32

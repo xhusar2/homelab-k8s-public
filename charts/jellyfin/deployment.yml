@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jellyfin
+  namespace: media
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: jellyfin
+  template:
+    metadata:
+      labels:
+        app: jellyfin
+    spec:
+      containers:
+        - name: jellyfin
+          image: jellyfin/jellyfin:10.11.6
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8096
+          env:
+            - name: JELLYFIN_PublishedServerUrl
+              value: "http://APP_JELLYFIN_HOST_PLACEHOLDER"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "4"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8096
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8096
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: cache
+              mountPath: /cache
+            - name: media
+              mountPath: /media
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: jellyfin-config-longhorn-pvc
+        - name: media
+          persistentVolumeClaim:
+            claimName: jellyfin-media-longhorn-pvc
+        - name: cache
+          emptyDir: {}

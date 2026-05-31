@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vintage-story-2-server
+  namespace: gaming
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vintage-story-2
+  template:
+    metadata:
+      labels:
+        app: vintage-story-2
+    spec:
+      initContainers:
+        - name: sync-serverconfig
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              src=/seed/serverconfig.json
+              dst=/data/serverconfig.json
+              sid=""
+              if [ -f "$dst" ]; then
+                sid=$(grep '"ServerIdentifier"' "$dst" | sed -n 's/.*"ServerIdentifier": "\([^"]*\)".*/\1/p')
+              fi
+              cp -f "$src" "$dst"
+              echo "Synced serverconfig.json from ConfigMap"
+              if [ -n "$sid" ] && [ "$sid" != "null" ]; then
+                sed -i "s/\"ServerIdentifier\": null/\"ServerIdentifier\": \"$sid\"/" "$dst"
+              fi
+              if grep -q '"Ip": null' "$dst" || grep -q '"Ip": ""' "$dst"; then
+                sed -i 's/"Ip": null/"Ip": "0.0.0.0"/; s/"Ip": ""/"Ip": "0.0.0.0"/' "$dst"
+                echo "Patched serverconfig.json Ip -> 0.0.0.0"
+              fi
+          volumeMounts:
+            - name: data-volume
+              mountPath: /data
+            - name: serverconfig-seed
+              mountPath: /seed
+              readOnly: true
+      containers:
+        - name: game-server
+          image: ghcr.io/darkmatterproductions/vintagestory:latest
+          imagePullPolicy: Always
+          env:
+            # Only password stays as env — image entrypoint applies it on start.
+            # All other settings come from serverconfig.json (ConfigMap → init sync).
+            - name: VS_CFG_SERVER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vs-server-2-secrets
+                  key: server-password
+          resources:
+            requests:
+              memory: "3Gi"
+              cpu: "2"
+            limits:
+              memory: "8Gi"
+              cpu: "4"
+          volumeMounts:
+            - name: data-volume
+              mountPath: /vintagestory/data
+      volumes:
+        - name: data-volume
+          persistentVolumeClaim:
+            claimName: vintage-story-2-longhorn-pvc
+        - name: serverconfig-seed
+          configMap:
+            name: vintage-story-2-serverconfig
+            items:
+              - key: serverconfig.json
+                path: serverconfig.json

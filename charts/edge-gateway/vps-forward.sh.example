@@ -1,0 +1,138 @@
+#!/bin/bash
+# Install on VPS:
+#   sudo cp vps-forward.sh.example /etc/wireguard/vps-forward.sh
+#   sudo chmod 750 /etc/wireguard/vps-forward.sh
+# Edit WAN_IFACE if your public interface is not eth0.
+#
+# /etc/wireguard/wg0.conf:
+#   Table = off
+#   PostUp   = /etc/wireguard/vps-forward.sh up
+#   PostDown = /etc/wireguard/vps-forward.sh down
+#
+# Matches a working VPS ruleset (Vintage Story + TAK). Homelab WG client must keep
+# AllowedIPs = WG_VPS_PEER_PLACEHOLDER/32 — SNAT/MASQUERADE below makes sources acceptable.
+
+set -euo pipefail
+
+WAN_IFACE="${WAN_IFACE:-eth0}"
+WG_IFACE="${WG_IFACE:-wg0}"
+WG_SRC="${WG_SRC:-WG_VPS_PEER_PLACEHOLDER}"
+HOMELAB_IP="${HOMELAB_IP:-WG_HOMELAB_PEER_PLACEHOLDER}"
+
+up() {
+  sysctl -w net.ipv4.ip_forward=1
+
+  # --- Vintage Story: public 42420 -> homelab 42420 (tcp+udp) ---
+  iptables -t nat -A PREROUTING -i "$WAN_IFACE" -p tcp --dport 42420 \
+    -j DNAT --to-destination "${HOMELAB_IP}:42420"
+  iptables -t nat -A PREROUTING -i "$WAN_IFACE" -p udp --dport 42420 \
+    -j DNAT --to-destination "${HOMELAB_IP}:42420"
+  iptables -t nat -A POSTROUTING -o "$WG_IFACE" -p tcp -m tcp --dport 42420 \
+    -j SNAT --to-source "$WG_SRC"
+  iptables -t nat -A POSTROUTING -o "$WG_IFACE" -p udp -m udp --dport 42420 \
+    -j SNAT --to-source "$WG_SRC"
+  forward_allow_new 42420 tcp
+  forward_allow_new 42420 udp
+
+  # --- Vintage Story 2: public 42421 -> homelab 42421 (tcp+udp) ---
+  iptables -t nat -A PREROUTING -i "$WAN_IFACE" -p tcp --dport 42421 \
+    -j DNAT --to-destination "${HOMELAB_IP}:42421"
+  iptables -t nat -A PREROUTING -i "$WAN_IFACE" -p udp --dport 42421 \
+    -j DNAT --to-destination "${HOMELAB_IP}:42421"
+  iptables -t nat -A POSTROUTING -o "$WG_IFACE" -p tcp -m tcp --dport 42421 \
+    -j SNAT --to-source "$WG_SRC"
+  iptables -t nat -A POSTROUTING -o "$WG_IFACE" -p udp -m udp --dport 42421 \
+    -j SNAT --to-source "$WG_SRC"
+  forward_allow_new 42421 tcp
+  forward_allow_new 42421 udp
+
+  # --- TAK streaming: public 8089 -> homelab wg 31889 -> cluster 8089 ---
+  iptables -t nat -A PREROUTING -i "$WAN_IFACE" -p tcp --dport 8089 \
+    -j DNAT --to-destination "${HOMELAB_IP}:31889"
+  iptables -t nat -A POSTROUTING -d "${HOMELAB_IP}/32" -o "$WG_IFACE" -p tcp -m tcp --dport 31889 \
+    -j MASQUERADE
+  forward_allow_new 8089 tcp
+
+  # --- TAK HTTPS: public 8443 -> homelab wg 8443 (mission/data packages, Marti API) ---
+  iptables -t nat -A PREROUTING -i "$WAN_IFACE" -p tcp --dport 8443 \
+    -j DNAT --to-destination "${HOMELAB_IP}:8443"
+  iptables -t nat -A POSTROUTING -d "${HOMELAB_IP}/32" -o "$WG_IFACE" -p tcp -m tcp --dport 8443 \
+    -j MASQUERADE
+  forward_allow_new 8443 tcp
+
+  forward_allow_established
+}
+
+down() {
+  teardown_nat
+  teardown_forward
+}
+
+forward_allow_new() {
+  local dport="$1"
+  local proto="$2"
+  iptables -I DOCKER-USER 1 -i "$WAN_IFACE" -o "$WG_IFACE" -p "$proto" -m conntrack --ctstate NEW \
+    -m "$proto" --dport "$dport" -j ACCEPT
+  iptables -I FORWARD 1 -i "$WAN_IFACE" -o "$WG_IFACE" -p "$proto" -m conntrack --ctstate NEW \
+    -m "$proto" --dport "$dport" -j ACCEPT 2>/dev/null || true
+}
+
+forward_allow_established() {
+  iptables -I DOCKER-USER 1 -i "$WG_IFACE" -o "$WAN_IFACE" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+  iptables -I FORWARD 1 -i "$WG_IFACE" -o "$WAN_IFACE" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
+}
+
+teardown_nat() {
+  iptables -t nat -D PREROUTING -i "$WAN_IFACE" -p tcp --dport 42420 \
+    -j DNAT --to-destination "${HOMELAB_IP}:42420" 2>/dev/null || true
+  iptables -t nat -D PREROUTING -i "$WAN_IFACE" -p udp --dport 42420 \
+    -j DNAT --to-destination "${HOMELAB_IP}:42420" 2>/dev/null || true
+  iptables -t nat -D POSTROUTING -o "$WG_IFACE" -p tcp -m tcp --dport 42420 \
+    -j SNAT --to-source "$WG_SRC" 2>/dev/null || true
+  iptables -t nat -D POSTROUTING -o "$WG_IFACE" -p udp -m udp --dport 42420 \
+    -j SNAT --to-source "$WG_SRC" 2>/dev/null || true
+  iptables -t nat -D PREROUTING -i "$WAN_IFACE" -p tcp --dport 42421 \
+    -j DNAT --to-destination "${HOMELAB_IP}:42421" 2>/dev/null || true
+  iptables -t nat -D PREROUTING -i "$WAN_IFACE" -p udp --dport 42421 \
+    -j DNAT --to-destination "${HOMELAB_IP}:42421" 2>/dev/null || true
+  iptables -t nat -D POSTROUTING -o "$WG_IFACE" -p tcp -m tcp --dport 42421 \
+    -j SNAT --to-source "$WG_SRC" 2>/dev/null || true
+  iptables -t nat -D POSTROUTING -o "$WG_IFACE" -p udp -m udp --dport 42421 \
+    -j SNAT --to-source "$WG_SRC" 2>/dev/null || true
+  iptables -t nat -D PREROUTING -i "$WAN_IFACE" -p tcp --dport 8089 \
+    -j DNAT --to-destination "${HOMELAB_IP}:31889" 2>/dev/null || true
+  iptables -t nat -D POSTROUTING -d "${HOMELAB_IP}/32" -o "$WG_IFACE" -p tcp -m tcp --dport 31889 \
+    -j MASQUERADE 2>/dev/null || true
+  iptables -t nat -D PREROUTING -i "$WAN_IFACE" -p tcp --dport 8443 \
+    -j DNAT --to-destination "${HOMELAB_IP}:8443" 2>/dev/null || true
+  iptables -t nat -D POSTROUTING -d "${HOMELAB_IP}/32" -o "$WG_IFACE" -p tcp -m tcp --dport 8443 \
+    -j MASQUERADE 2>/dev/null || true
+}
+
+teardown_forward() {
+  while iptables -D DOCKER-USER -i "$WG_IFACE" -o "$WAN_IFACE" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null; do :; done
+  while iptables -D DOCKER-USER -i "$WAN_IFACE" -o "$WG_IFACE" -p tcp -m conntrack --ctstate NEW -m tcp --dport 42420 -j ACCEPT 2>/dev/null; do :; done
+  while iptables -D DOCKER-USER -i "$WAN_IFACE" -o "$WG_IFACE" -p udp -m conntrack --ctstate NEW -m udp --dport 42420 -j ACCEPT 2>/dev/null; do :; done
+  while iptables -D DOCKER-USER -i "$WAN_IFACE" -o "$WG_IFACE" -p tcp -m conntrack --ctstate NEW -m tcp --dport 42421 -j ACCEPT 2>/dev/null; do :; done
+  while iptables -D DOCKER-USER -i "$WAN_IFACE" -o "$WG_IFACE" -p udp -m conntrack --ctstate NEW -m udp --dport 42421 -j ACCEPT 2>/dev/null; do :; done
+  while iptables -D DOCKER-USER -i "$WAN_IFACE" -o "$WG_IFACE" -p tcp -m conntrack --ctstate NEW -m tcp --dport 8089 -j ACCEPT 2>/dev/null; do :; done
+  while iptables -D DOCKER-USER -i "$WAN_IFACE" -o "$WG_IFACE" -p tcp -m conntrack --ctstate NEW -m tcp --dport 8443 -j ACCEPT 2>/dev/null; do :; done
+  while iptables -D FORWARD -i "$WG_IFACE" -o "$WAN_IFACE" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null; do :; done
+  while iptables -D FORWARD -i "$WAN_IFACE" -o "$WG_IFACE" -p tcp -m conntrack --ctstate NEW -m tcp --dport 42420 -j ACCEPT 2>/dev/null; do :; done
+  while iptables -D FORWARD -i "$WAN_IFACE" -o "$WG_IFACE" -p udp -m conntrack --ctstate NEW -m udp --dport 42420 -j ACCEPT 2>/dev/null; do :; done
+  while iptables -D FORWARD -i "$WAN_IFACE" -o "$WG_IFACE" -p tcp -m conntrack --ctstate NEW -m tcp --dport 42421 -j ACCEPT 2>/dev/null; do :; done
+  while iptables -D FORWARD -i "$WAN_IFACE" -o "$WG_IFACE" -p udp -m conntrack --ctstate NEW -m udp --dport 42421 -j ACCEPT 2>/dev/null; do :; done
+  while iptables -D FORWARD -i "$WAN_IFACE" -o "$WG_IFACE" -p tcp -m conntrack --ctstate NEW -m tcp --dport 8089 -j ACCEPT 2>/dev/null; do :; done
+  while iptables -D FORWARD -i "$WAN_IFACE" -o "$WG_IFACE" -p tcp -m conntrack --ctstate NEW -m tcp --dport 8443 -j ACCEPT 2>/dev/null; do :; done
+  # Legacy manual rules (no conntrack) — remove duplicates from experimentation
+  while iptables -D FORWARD -i "$WAN_IFACE" -o "$WG_IFACE" -p tcp -m tcp --dport 42420 -j ACCEPT 2>/dev/null; do :; done
+  while iptables -D FORWARD -i "$WAN_IFACE" -o "$WG_IFACE" -p udp -m udp --dport 42420 -j ACCEPT 2>/dev/null; do :; done
+  while iptables -D FORWARD -i "$WAN_IFACE" -o "$WG_IFACE" -p tcp -m tcp --dport 42421 -j ACCEPT 2>/dev/null; do :; done
+  while iptables -D FORWARD -i "$WAN_IFACE" -o "$WG_IFACE" -p udp -m udp --dport 42421 -j ACCEPT 2>/dev/null; do :; done
+}
+
+case "${1:-}" in
+  up) up ;;
+  down) down ;;
+  *) echo "usage: $0 up|down" >&2; exit 1 ;;
+esac

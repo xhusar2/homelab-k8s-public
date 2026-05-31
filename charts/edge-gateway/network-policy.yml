@@ -1,0 +1,61 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: wireguard-gateway-network-policy
+  namespace: edge-gateway
+spec:
+  podSelector:
+    matchLabels:
+      app: wireguard-gateway
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 42420
+        - protocol: UDP
+          port: 42420
+        - protocol: TCP
+          port: 42421
+        - protocol: UDP
+          port: 42421
+        - protocol: TCP
+          port: 31889
+        - protocol: TCP
+          port: 8443
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 51820
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gaming
+      ports:
+        - protocol: TCP
+          port: 42420
+        - protocol: UDP
+          port: 42420
+        - protocol: TCP
+          port: 42421
+        - protocol: UDP
+          port: 42421
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: tak
+      ports:
+        - protocol: TCP
+          port: 8089
+        - protocol: TCP
+          port: 8443
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

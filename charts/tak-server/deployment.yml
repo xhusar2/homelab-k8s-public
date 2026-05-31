@@ -1,0 +1,238 @@
+# TAK stack: one pod shares the network namespace (same pattern as pvarki/docker-atak-server compose).
+# Image bundles official TAK release bits; see https://github.com/pvarki/docker-atak-server
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tak-server
+  namespace: tak
+  labels:
+    app: tak-server
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: tak-server
+  template:
+    metadata:
+      labels:
+        app: tak-server
+    spec:
+      initContainers:
+        - name: wait-postgres
+          image: postgres:15-alpine
+          envFrom:
+            - configMapRef:
+                name: tak-server-env
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tak-server-secrets
+                  key: POSTGRES_PASSWORD
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              until pg_isready -h takdb -p 5432 -U "$(POSTGRES_USER)" -d "$(POSTGRES_DB)"; do
+                echo "waiting for postgres..."
+                sleep 3
+              done
+        - name: tak-firstrun
+          image: ghcr.io/pvarki/takserver:5.7-RELEASE-8
+          imagePullPolicy: IfNotPresent
+          command:
+            - /opt/scripts/firstrun.sh
+          envFrom:
+            - configMapRef:
+                name: tak-server-env
+            - secretRef:
+                name: tak-server-secrets
+          env:
+            # Compose defaults superuser password to app user password when both are martiuser.
+            - name: POSTGRES_SUPER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tak-server-secrets
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: tak-data
+              mountPath: /opt/tak/data
+      containers:
+        - name: tak-config
+          image: ghcr.io/pvarki/takserver:5.7-RELEASE-8
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - sed -i 's/\.env\./.Env./g' /opt/templates/CoreConfig.tpl && exec /opt/scripts/start-tak.sh config
+          envFrom:
+            - configMapRef:
+                name: tak-server-env
+            - secretRef:
+                name: tak-server-secrets
+          env:
+            - name: POSTGRES_SUPER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tak-server-secrets
+                  key: POSTGRES_PASSWORD
+            - name: tak_server_address
+              valueFrom:
+                configMapKeyRef:
+                  name: tak-server-env
+                  key: TAK_SERVER_ADDRESS
+          volumeMounts:
+            - name: tak-data
+              mountPath: /opt/tak/data
+          resources:
+            requests:
+              cpu: 250m
+              memory: 768Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          readinessProbe:
+            tcpSocket:
+              port: 8443
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            failureThreshold: 30
+        - name: tak-messaging
+          image: ghcr.io/pvarki/takserver:5.7-RELEASE-8
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - sed -i 's/\.env\./.Env./g' /opt/templates/CoreConfig.tpl && exec /opt/scripts/start-tak.sh messaging
+          envFrom:
+            - configMapRef:
+                name: tak-server-env
+            - secretRef:
+                name: tak-server-secrets
+          env:
+            - name: POSTGRES_SUPER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tak-server-secrets
+                  key: POSTGRES_PASSWORD
+            - name: tak_server_address
+              valueFrom:
+                configMapKeyRef:
+                  name: tak-server-env
+                  key: TAK_SERVER_ADDRESS
+          volumeMounts:
+            - name: tak-data
+              mountPath: /opt/tak/data
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1536Mi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+        - name: tak-api
+          image: ghcr.io/pvarki/takserver:5.7-RELEASE-8
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - sed -i 's/\.env\./.Env./g' /opt/templates/CoreConfig.tpl && exec /opt/scripts/start-tak.sh api
+          envFrom:
+            - configMapRef:
+                name: tak-server-env
+            - secretRef:
+                name: tak-server-secrets
+          env:
+            - name: POSTGRES_SUPER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tak-server-secrets
+                  key: POSTGRES_PASSWORD
+            - name: tak_server_address
+              valueFrom:
+                configMapKeyRef:
+                  name: tak-server-env
+                  key: TAK_SERVER_ADDRESS
+          volumeMounts:
+            - name: tak-data
+              mountPath: /opt/tak/data
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1536Mi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+        - name: tak-retention
+          image: ghcr.io/pvarki/takserver:5.7-RELEASE-8
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - sed -i 's/\.env\./.Env./g' /opt/templates/CoreConfig.tpl && exec /opt/scripts/start-tak.sh retention
+          envFrom:
+            - configMapRef:
+                name: tak-server-env
+            - secretRef:
+                name: tak-server-secrets
+          env:
+            - name: POSTGRES_SUPER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tak-server-secrets
+                  key: POSTGRES_PASSWORD
+            - name: tak_server_address
+              valueFrom:
+                configMapKeyRef:
+                  name: tak-server-env
+                  key: TAK_SERVER_ADDRESS
+          volumeMounts:
+            - name: tak-data
+              mountPath: /opt/tak/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 384Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+        - name: tak-pluginmanager
+          image: ghcr.io/pvarki/takserver:5.7-RELEASE-8
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - sed -i 's/\.env\./.Env./g' /opt/templates/CoreConfig.tpl && exec /opt/scripts/start-tak.sh pm
+          envFrom:
+            - configMapRef:
+                name: tak-server-env
+            - secretRef:
+                name: tak-server-secrets
+          env:
+            - name: POSTGRES_SUPER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tak-server-secrets
+                  key: POSTGRES_PASSWORD
+            - name: tak_server_address
+              valueFrom:
+                configMapKeyRef:
+                  name: tak-server-env
+                  key: TAK_SERVER_ADDRESS
+          volumeMounts:
+            - name: tak-data
+              mountPath: /opt/tak/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+      volumes:
+        - name: tak-data
+          persistentVolumeClaim:
+            claimName: tak-server-data-longhorn-pvc

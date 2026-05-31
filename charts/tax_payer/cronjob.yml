@@ -1,0 +1,29 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: tax-payer
+spec:
+  schedule: "0 0 1 * *" # Runs at 00:00 on the 1st day of every month
+  concurrencyPolicy: Forbid # Prevents a new job from starting if the old one is still running
+  successfulJobsHistoryLimit: 6 # ~6 months of runs (monthly schedule)
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 7776000 # delete Job + pods 90d after finish
+      template:
+        spec:
+          dnsConfig:
+            options:
+            - name: ndots
+              value: "1"
+          containers:
+          - name: tax-payer
+            image: tax_payer:local # Matches the tag we imported into K3s
+            imagePullPolicy: Never # CRITICAL: Forces K3s to use the local image cache instead of DockerHub
+            envFrom:
+            - secretRef:
+                name: tax-payer-secrets # Pulls your .env variables from the K8s secret
+            command: ["python", "main.py"]
+            args: ["--send-email"]
+          restartPolicy: OnFailure # Retries the pod if the script crashes
+          dnsPolicy: Default

@@ -1,0 +1,16 @@
+# Copy to wg0.conf, fill keys, then:
+#   kubectl create secret generic wg-gateway-config -n edge-gateway \
+#     --from-file=wg0.conf=./wg0.conf
+#
+# Homelab WireGuard client (WG_HOMELAB_PEER_PLACEHOLDER). VPS server config: vps-wg0.conf.example
+# VPS must SNAT forwarded game traffic to WG_VPS_PEER_PLACEHOLDER (see vps-forward.sh.example).
+
+[Interface]
+PrivateKey = REPLACE_HOMELAB_PRIVATE_KEY
+Address = WG_HOMELAB_PEER_PLACEHOLDER/32
+
+[Peer]
+PublicKey = REPLACE_VPS_PUBLIC_KEY
+Endpoint = REPLACE_VPS_PUBLIC_IP:51820
+AllowedIPs = WG_VPS_PEER_PLACEHOLDER/32
+PersistentKeepalive = 25

@@ -1,0 +1,23 @@
+# Direct TLS / enrollment from LAN without Traefik TCP pass-through.
+# ATAK often expects these ports on the server IP or DNS name in ConfigMap (TAK_SERVER_ADDRESS).
+apiVersion: v1
+kind: Service
+metadata:
+  name: tak-server-external
+  namespace: tak
+  labels:
+    app: tak-server
+    app.kubernetes.io/name: tak-server-external
+spec:
+  type: NodePort
+  selector:
+    app: tak-server
+  ports:
+    - name: http-enrollment
+      port: 8089
+      targetPort: 8089
+      nodePort: 31889
+    - name: https-api
+      port: 8443
+      targetPort: 8443
+      nodePort: 32443
