@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: steam-idler-env
+  namespace: gaming
+data:
+  STEAM_USERNAME: "bazmekuss"
+  STEAM_GAME_IDS: "221100, 304930"
+  TOKEN_FILE_PATH: "/data/token"

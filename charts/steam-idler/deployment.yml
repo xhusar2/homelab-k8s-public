@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: steam-idler
+  namespace: gaming
+  labels:
+    app: steam-idler
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: steam-idler
+  template:
+    metadata:
+      labels:
+        app: steam-idler
+    spec:
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        - name: fix-data-perms
+          image: alpine:3.21
+          command: ["sh", "-c", "chown -R 1000:1000 /data"]
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      containers:
+        - name: steam-idler
+          image: LAN_IP_OCTET_PLACEHOLDER0.10:32000/steam-idler:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: steam-idler-env
+            - secretRef:
+                name: steam-idler-secrets
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: steam-idler-data-longhorn-pvc

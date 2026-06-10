@@ -331,7 +331,7 @@ data:
       "HostedMode": false,
       "HostedModeAllowMods": false,
       "VhIdentifier": null,
-      "StartupCommands": null,
+      "StartupCommands": "/op Riccardo_\n/worldconfig allowFallingBlocks true\n/worldconfig blockGravity sandgravel",
       "RepairMode": false,
       "AnalyzeMode": false,
       "CorruptionProtection": true,

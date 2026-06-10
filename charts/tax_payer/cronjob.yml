@@ -18,8 +18,8 @@ spec:
               value: "1"
           containers:
           - name: tax-payer
-            image: tax_payer:local # Matches the tag we imported into K3s
-            imagePullPolicy: Never # CRITICAL: Forces K3s to use the local image cache instead of DockerHub
+            image: LAN_IP_OCTET_PLACEHOLDER0.10:32000/tax-payer:local
+            imagePullPolicy: Always
             envFrom:
             - secretRef:
                 name: tax-payer-secrets # Pulls your .env variables from the K8s secret
